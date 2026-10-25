@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "acceptance", "helperTasks", "execution"],
+  "properties": {
+    "summary": { "type": "string" },
+    "acceptance": { "type": "array", "items": { "type": "string" } },
+    "helperTasks": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["title", "instruction", "context"],
+        "properties": { "title": { "type": "string" }, "instruction": { "type": "string" }, "context": { "type": "string" } }
+      }
+    },
+    "execution": { "type": "string" }
+  }
+}

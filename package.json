@@ -1,0 +1,17 @@
+{
+  "name": "forge-relay",
+  "version": "0.6.1",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "chat": "node cli.mjs",
+    "test": "node --test test/*.test.mjs",
+    "benchmark:cache": "node tools/cache-economy-benchmark.mjs",
+    "desktop:runtime": "node tools/prepare-desktop-runtime.mjs",
+    "desktop:dist": "node tools/build-windows.mjs"
+  }
+}
