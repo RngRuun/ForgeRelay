@@ -16,6 +16,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install browser integration test dependency
+        run: npm install --no-save --package-lock=false --registry https://registry.npmjs.org playwright@1.62.1
       - name: Run deterministic checks without provider credentials
         shell: pwsh
         run: |

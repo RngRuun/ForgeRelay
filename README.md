@@ -19,7 +19,7 @@ Release 同时提供 SHA-256 校验文件。应用尚未做代码签名，Window
 
 ## 从源码运行与构建
 
-基础服务只使用 Node.js 内置模块。使用 Node.js 22 或更新版本，在仓库根目录运行 `npm start`，或通过 `npm run chat` 使用 CLI。运行回归测试使用 `npm test`；文档解析相关测试需要 Python 3，可通过 `RELAY_PYTHON` 指定解释器。测试不会调用真实付费模型。
+基础服务只使用 Node.js 内置模块。使用 Node.js 22 或更新版本，在仓库根目录运行 `npm start`，或通过 `npm run chat` 使用 CLI。运行回归测试使用 `npm test`；文档解析相关测试需要 Python 3，可通过 `RELAY_PYTHON` 指定解释器；独立浏览器测试需要 Playwright 1.62.1 和 Microsoft Edge，可用 `npm install --no-save --package-lock=false playwright@1.62.1` 准备。测试不会调用真实付费模型，也不要求已有 Codex 登录。
 
 Windows 构建：
 
