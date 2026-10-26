@@ -1,5 +1,0 @@
-{
- "type":"object","additionalProperties":false,
- "required":["reply","complexity","discussionReason","discussionQuestion"],
- "properties":{"reply":{"type":"string"},"complexity":{"type":"integer"},"discussionReason":{"type":"string"},"discussionQuestion":{"type":"string"}}
-}
