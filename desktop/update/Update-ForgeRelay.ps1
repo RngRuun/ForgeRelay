@@ -66,7 +66,9 @@ try {
         if ($installed.product -eq 'ForgeRelay' -and $installed.version -match '^\d+\.\d+\.\d+$' -and [Version]$manifest.version -lt [Version]$installed.version) { throw '不支持覆盖降级。请在另一个文件夹运行旧版，保留当前应用和数据。' }
     }
     # Refuse to modify an application that is still running. Do not kill unrelated engines or work.
-    $active = @(Get-CimInstance Win32_Process -Filter "Name LIKE 'ForgeRelay%.exe'" | Where-Object { $_.ExecutablePath -and [IO.Path]::GetDirectoryName($_.ExecutablePath).TrimEnd('\') -ieq $Destination })
+    $processes = @(Get-CimInstance Win32_Process)
+    $active = @($processes | Where-Object { $_.ExecutablePath -and [IO.Path]::GetDirectoryName($_.ExecutablePath).TrimEnd('\') -ieq $Destination -and [IO.Path]::GetFileName($_.ExecutablePath) -match '^ForgeRelay(?:-\d+\.\d+\.\d+-Windows-x64)?\.exe$' })
+    if (@($processes | Where-Object { $_.Name -match '^ForgeRelay.*\.exe$' -and -not $_.ExecutablePath }).Count -gt 0) { throw '无法确认一个 ForgeRelay 进程的路径，请先退出正在运行的 ForgeRelay 后重试。' }
     if ($active.Count -gt 0) { throw 'ForgeRelay 仍在运行。请从系统托盘退出旧版本，再重新更新；仅关闭或最小化窗口可能仍会保留后台。' }
     $stage = Child-Path $Destination ('.forgerelay-update-' + [Guid]::NewGuid().ToString('N'))
     [void][IO.Directory]::CreateDirectory($stage)

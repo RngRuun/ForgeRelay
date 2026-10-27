@@ -85,11 +85,15 @@ test('locked legacy executable rolls back earlier replacements',windows,async t=
 test('update refuses a running copy and leaves that process alive',windows,async t=>{
   const f=fixture(t),executable=path.join(f.destination,'ForgeRelay.exe');fs.copyFileSync(process.execPath,executable);
   const before=hash(fs.readFileSync(executable));
-  const running=spawn(executable,['-e','setInterval(()=>{},1000)'],{windowsHide:true,stdio:'ignore'});const closed=once(running,'exit');
+  const running=spawn(executable,['-e','console.log("READY");setInterval(()=>{},1000)'],{windowsHide:true,stdio:['ignore','pipe','pipe']});const closed=once(running,'exit');
+  let startup='';running.stdout.on('data',value=>startup+=value);running.stderr.on('data',value=>startup+=value);
   t.after(async()=>{if(running.exitCode===null)running.kill();await closed;});
   try{
-    await once(running,'spawn');const result=f.run();assert.equal(result.status,1,result.stdout);
-    assert.match(result.stderr.replace(/\s/g,''),/仍在运行/);
+    for(let i=0;i<200&&!startup.includes('READY')&&running.exitCode===null;i++)await delay(25);
+    assert.match(startup,/READY/,'running-app fixture must actually reach its event loop');
+    assert.equal(running.exitCode,null);
+    const result=f.run();assert.equal(result.status,1,result.stdout+' fixture exit='+running.exitCode+' startup='+startup);
+    assert.match(result.stderr.replace(/\s/g,''),/仍在运行|无法确认.*进程的路径/);
     assert.equal(running.exitCode,null,'updater must not kill user work');assert.equal(hash(fs.readFileSync(executable)),before);
   }finally{running.kill();await closed;}
 });
