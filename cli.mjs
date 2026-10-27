@@ -15,7 +15,7 @@ import {RULES} from './discussion.mjs';
 import {cachePercent} from './public/cache-usage.js';
 
 const root=path.dirname(fileURLToPath(import.meta.url));
-export const compatibleEngine=health=>health?.app==='relay-workbench'&&/^0\.(?:5|6)\.\d+$/.test(health.version)&&health.humanLoopVersion===1;
+export const compatibleEngine=health=>health?.app==='relay-workbench'&&/^0\.(?:5|6)\.\d+$/.test(health.version)&&[1,2].includes(health.humanLoopVersion);
 export const HELP=`ForgeRelay · 人 + DeepSeek + Codex
 
 启动：npm run chat

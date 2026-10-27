@@ -3,11 +3,17 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import path from 'node:path';
 const require=createRequire(import.meta.url);
-const {desktopConfig,navigationAllowed,downloadAllowed,externalURL,activeItems,windowBounds}=require('../desktop/policy.cjs');
+const {desktopConfig,engineCompatible,navigationAllowed,downloadAllowed,externalURL,activeItems,windowBounds}=require('../desktop/policy.cjs');
 const origin='http://127.0.0.1:4317',root=path.resolve('test-data');
 test('desktop accepts only validated local configuration',()=>{
   assert.deepEqual(desktopConfig({},root),{port:4317,dataDir:root});
   for(const invalid of [{port:80},{port:'4317'},{port:65536},{dataDir:'relative'},{dataDir:'C:\\bad\x00path'},null,[]])assert.throws(()=>desktopConfig(invalid,root));
+});
+
+test('desktop refuses stale engine assets after an overwrite upgrade',()=>{
+  const version='0.6.3',current={app:'relay-workbench',version,frontendAssetsVersion:1};
+  assert.equal(engineCompatible(current,version),true);
+  for(const value of [null,{...current,app:'other'},{...current,version:'0.6.2'},{...current,frontendAssetsVersion:undefined},{...current,frontendAssetsVersion:2}])assert.equal(engineCompatible(value,version),false);
 });
 test('desktop navigation cannot become a privileged general-purpose browser',()=>{
   assert.equal(navigationAllowed(origin+'/discussion?new=1',origin),true);

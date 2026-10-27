@@ -1,4 +1,6 @@
 // Shared layout behavior. Model state, drafts and navigation remain in their own views.
+import {mountWorkStatus} from './work-status.js';
+mountWorkStatus();
 const compact=matchMedia('(max-width:1100px)'),key='forgerelay.layout.list-collapsed.v1';
 let collapsed=false,drawerOpen=false,frame=0,restoreFocus=null;
 try{collapsed=localStorage.getItem(key)==='true';}catch{}
@@ -15,9 +17,10 @@ function refresh(){
   let toggle=heading.querySelector('[data-list-toggle]');
   if(!toggle){toggle=document.createElement('button');toggle.type='button';toggle.className='workspace-list-toggle secondary';toggle.dataset.listToggle='';toggle.innerHTML=icon;heading.prepend(toggle);}
   list.id='workspace-object-list';toggle.setAttribute('aria-controls',list.id);
+  if(list.classList.contains('project-rail')){let count=toggle.querySelector('.workspace-list-count');if(!count){count=document.createElement('span');count.className='workspace-list-count';toggle.append(count);}const value=document.body.dataset.taskCount||'0';if(count.textContent!==value)count.textContent=value;}
   if(!list.querySelector('[data-list-close]')){const button=document.createElement('button');button.type='button';button.className='workspace-list-close secondary';button.dataset.listClose='';button.setAttribute('aria-label','收起列表');button.innerHTML='<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';list.prepend(button);}
   const shown=compact.matches?drawerOpen:!collapsed,name=list.classList.contains('profile-rail')?'配置列表':list.classList.contains('project-rail')?'任务列表':'会话列表';
-  toggle.setAttribute('aria-expanded',String(shown));toggle.setAttribute('aria-label',(shown?'收起':'展开')+name);toggle.title=(shown?'收起':'展开')+name;
+  toggle.setAttribute('aria-expanded',String(shown));const label=(shown?'收起':'展开')+name+(list.classList.contains('project-rail')?'，共 '+(document.body.dataset.taskCount||'0')+' 项':'');toggle.setAttribute('aria-label',label);toggle.title=label;
   backdrop.hidden=!(compact.matches&&drawerOpen);content.inert=compact.matches&&drawerOpen;list.inert=!shown;
   if(compact.matches&&drawerOpen){list.setAttribute('role','dialog');list.setAttribute('aria-modal','true');list.setAttribute('aria-label',name);}
   else{list.removeAttribute('role');list.removeAttribute('aria-modal');list.removeAttribute('aria-label');}
@@ -46,4 +49,5 @@ document.addEventListener('keydown',event=>{
 });
 document.addEventListener('focusin',event=>{if(drawerOpen&&compact.matches&&event.target.closest('dialog[open],[role=alertdialog]')){drawerOpen=false;restoreFocus=null;refresh();window.dispatchEvent(new Event('workspace-layoutchange'));}});
 compact.addEventListener('change',()=>{drawerOpen=false;refresh();window.dispatchEvent(new Event('workspace-layoutchange'));});
+window.addEventListener('workspace-task-count',schedule);
 new MutationObserver(schedule).observe(document.getElementById('app'),{childList:true,subtree:true});refresh();

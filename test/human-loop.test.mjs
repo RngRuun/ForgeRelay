@@ -13,6 +13,41 @@ function fixture(t,{policy={},answer}={}){const dir=fs.mkdtempSync(path.join(os.
 }
 async function run(hub,r){await hub.start(r.id);await hub.live.get(r.id)?.promise;}
 const signal=(kind,position='unknown',extra={})=>({kind,topic:kind==='gap'?'客户的未公开期限':'本地与云端取舍',detail:'这是影响当前决策的具体条件，需要核对后才能继续。',impact:5,blocking:true,humanOnly:kind==='gap',position,options:['仅本地，接受较慢速度','使用云端，增加运维成本'],objectionIds:[],...extra});
+const objection=title=>({title,reason:'缺少可独立核验的依据',change:'补充依据并独立复核',evidence:'当前提案尚未覆盖该条件'});
+const challenge=r=>({rulesHash:r.rulesHash,revision:r.revision,proposalHash:r.proposal?.hash||'',directiveHash:r.governance.directiveHash,acknowledged:true,summary:'独立核对证据并提出有明确解决条件的异议。',analysis:[{topic:'核验',position:'仍需核对',evidence:'当前提案',alternative:'先补齐证据'}],objections:[],replies:[],close:[],proposal:'',stance:'undecided',question:'',signals:[]});
+
+test('同条发言可引用实际新增的异议，校验与登记使用相同编号',async t=>{
+ const {hub,r}=fixture(t,{answer:({phase,agent,turn})=>{if(phase==='challenge'&&agent.id==='research'){turn.objections=[objection('新条件一'),objection('新条件二')];turn.signals=[signal('disagreement','oppose',{objectionIds:['O1','O2']})];}}});
+ await run(hub,r);assert.equal(r.formatErrors,0);assert.ok(!r.calls.some(c=>c.validationError));assert.deepEqual(r.objections.map(o=>o.id),['O1','O2']);assert.deepEqual(r.governance.signals[0].objectionIds,['O1','O2']);assert.equal(r.objections[0].agentId,'research');assert.notEqual(r.status,'consensus');
+});
+
+test('重提自己的 open 异议不占用新编号，同条重复也只登记一次',t=>{
+ const {hub,r}=fixture(t),agent=r.governance.team.find(a=>a.id==='research');
+ r.objections.push({...objection('已有条件'),id:'O1',actor:'DeepSeek',agentId:'research',status:'open',replies:[]});
+ const turn={...challenge(r),objections:[objection('已有条件'),objection('新增条件'),objection('新增条件')],signals:[signal('disagreement','oppose',{objectionIds:['O1','O2']})]};
+ validateTurn(r,'DeepSeek','challenge',turn,r,agent);assert.equal(r.objections.length,1);
+ hub.apply(r,'DeepSeek','challenge',turn,{id:'fixture'},agent);assert.deepEqual(r.objections.map(o=>o.id),['O1','O2']);assert.equal(r.objections[0].replies.length,1);assert.equal(r.objections[1].replies.length,1);
+});
+
+test('未知 ID 与无效选项分别报出字段和原因，拒绝时不登记异议',t=>{
+ const {r}=fixture(t),agent=r.governance.team.find(a=>a.id==='research'),before=structuredClone(r);
+ const turn={...challenge(r),objections:[objection('有效但尚未登记')],signals:[signal('disagreement','oppose',{objectionIds:['O2']})]};
+ assert.throws(()=>validateTurn(r,'DeepSeek','challenge',turn,r,agent),/signals\[0\]\.objectionIds.*O2.*有效 ID：O1/);assert.deepEqual(r,before);
+ turn.signals[0].objectionIds=['O1'];turn.signals[0].options=['a','b','c','d'];assert.throws(()=>validateTurn(r,'DeepSeek','challenge',turn,r,agent),/options.*实际 4 项/);
+ turn.signals[0].options=[' '];assert.throws(()=>validateTurn(r,'DeepSeek','challenge',turn,r,agent),/options\[0\].*非空/);assert.deepEqual(r,before);
+});
+
+test('新异议不会合并到其他角色同标题的异议，也不能引用不存在的后续编号',t=>{
+ const {r}=fixture(t),agent=r.governance.team.find(a=>a.id==='research');r.objections.push({...objection('相同标题'),id:'O1',actor:'DeepSeek',agentId:'lead',status:'open',replies:[]});
+ const turn={...challenge(r),objections:[objection('相同标题')],signals:[signal('disagreement','oppose',{objectionIds:['O2']})]};validateTurn(r,'DeepSeek','challenge',turn,r,agent);
+ turn.signals[0].objectionIds=['O3'];assert.throws(()=>validateTurn(r,'DeepSeek','challenge',turn,r,agent),/不存在的异议：O3/);assert.equal(r.objections.length,1);
+});
+
+test('schema 反馈指出遗漏字段与非法自定义 id，关闭反馈给出所属角色和状态',t=>{
+ const {r}=fixture(t),agent=r.governance.team.find(a=>a.id==='research'),turn=challenge(r);turn.objections=[objection('条件')];delete turn.objections[0].change;
+ assert.throws(()=>validateTurn(r,'DeepSeek','challenge',turn,r,agent),/objections\[0\]\.change.*必填/);turn.objections=[{...objection('条件'),id:'O1'}];assert.throws(()=>validateTurn(r,'DeepSeek','challenge',turn,r,agent),/objections\[0\]\.id.*额外/);
+ turn.objections=[];r.objections.push({...objection('条件'),id:'O1',actor:'DeepSeek',agentId:'lead',status:'open',replies:[]});turn.close=[{objectionId:'O1',reason:'这是试图替别的角色关闭异议，必须拒绝。'}];assert.throws(()=>validateTurn(r,'DeepSeek','challenge',turn,r,agent),/提出者 lead.*当前角色 research/);r.objections[0].agentId='research';r.objections[0].status='closed';assert.throws(()=>validateTurn(r,'DeepSeek','challenge',turn,r,agent),/状态 closed/);
+});
 test('三至五个独立角色真实进入调度，DeepSeek 可主持提案，逐一独立表决同一约束',async t=>{
  for(const count of [3,5]){const {hub,r,sent}=fixture(t,{policy:{team:ROLE_PRESETS.slice(0,count),leaderId:'research'}});await run(hub,r);assert.equal(r.status,'consensus',r.reason);assert.equal(sent.length,count+1+count+1+count);assert.equal(sent.find(x=>x.phase==='proposal').provider,'DeepSeek');assert.equal(Object.keys(r.votes).length,count);assert.deepEqual(consensusProblems(r),[]);assert.equal(sent.filter(x=>x.phase==='vote').length,count);for(const c of sent.filter(x=>x.phase==='vote'))assert.ok(!c.prompt.includes('"stance":"agree"'));assert.ok(r.review.interventions.some(h=>h.action==='INITIAL'));}
 });

@@ -1,12 +1,13 @@
 {
   "name": "forgerelay-desktop",
-  "version": "0.6.1",
+  "version": "0.6.3",
   "description": "ForgeRelay 本地智能体协作桌面应用",
   "author": "ForgeRelay",
   "license": "UNLICENSED",
   "private": true,
   "main": "main.cjs",
   "scripts": {
+    "postinstall": "node node_modules/electron/install.js",
     "start": "electron .",
     "pack": "electron-builder --win --dir",
     "dist": "electron-builder --win portable"
@@ -25,6 +26,7 @@
       "main.cjs",
       "preload.cjs",
       "policy.cjs",
+      "credentials.cjs",
       "bootstrap.html",
       "bootstrap.css",
       "bootstrap.js",
@@ -38,6 +40,7 @@
         "filter": [
           "package.json",
           "*.mjs",
+          "*.cjs",
           "*.md",
           "*.schema.json",
           "*.ps1",
@@ -50,6 +53,13 @@
           "!outputs/**",
           "!test/**",
           "!node_modules/**"
+        ]
+      },
+      {
+        "from": "../node_modules/undici",
+        "to": "engine/node_modules/undici",
+        "filter": [
+          "**/*"
         ]
       },
       {

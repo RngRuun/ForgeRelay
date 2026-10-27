@@ -57,12 +57,17 @@ export function prepareCacheContext(room,actor,snapshot,{maxChars=220000,forceCh
   const previous=old?.identity===identity?old.journal:'';
   let shared=0;while(shared<previous.length&&shared<journal.length&&previous[shared]===journal[shared])shared++;
   const entry={identity,state:next,journal,segments};if(lane!=='vote')room.cacheContexts[key]=entry;
-  let remembered=false;
-  return {text:CONTEXT_PROTOCOL+'\n'+journal,messages:structuredClone(segments),rememberReply:(text,exchange)=>{
+  let remembered=false,retained=[];
+  const rememberExchange=exchange=>{
+    if(lane==='vote'||room.cacheContexts[key]!==entry||!exchange?.length)return;
+    const messages=structuredClone(exchange);validateProviderHistory([{role:'user',content:'validated exchange boundary'},...messages]);
+    if(messages.length<retained.length||retained.some((message,index)=>!equal(message,messages[index])))throw Error('真实工具续接历史不能改写已保存的前缀');
+    entry.segments.push(...messages.slice(retained.length));retained=messages;
+  };
+  return {text:CONTEXT_PROTOCOL+'\n'+journal,messages:structuredClone(segments),rememberExchange,rememberReply:(text,exchange)=>{
     if(remembered||lane==='vote'||room.cacheContexts[key]!==entry||typeof text!=='string')return;
     const messages=exchange?.length?structuredClone(exchange):[{role:'assistant',content:text}];
     if(messages.at(-1)?.role!=='assistant'||messages.at(-1)?.content!==text)throw Error('续接历史必须以本次真实回复结束');
-    validateProviderHistory([{role:'user',content:'validated exchange boundary'},...messages]);
-    entry.segments.push(...messages);remembered=true;
+    rememberExchange(messages);remembered=true;
   },stats:{version:3,transport:'frozen-message-boundaries',mode:resetReason?'checkpoint':'append',reason:resetReason||'state-delta',lane,promptChars:journal.length,sharedPrefixChars:shared,patchOperations:patch.length,messages:segments.length}};
 }

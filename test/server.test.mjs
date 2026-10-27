@@ -31,13 +31,17 @@ test('HTTP 接口拒绝跨域和无令牌写入，密钥不进入状态或任务
   assert.equal((await write('/api/tasks', { prompt: '跨域写入测试' }, { 'X-Relay-Token': state.token, Origin: 'https://example.com' })).status, 403);
   const response = await write('/api/tasks', { prompt: 'HTTP 演示任务测试', mode: 'live' }, { 'X-Relay-Token': state.token });
   assert.equal(response.status, 201); const task = await response.json();
-  const navigation=await(await fetch(base+'/api/navigation')).json();assert.equal(navigation.tasks[0].id,task.id);assert.deepEqual(Object.keys(navigation.tasks[0]).sort(),['id','kind','status','title']);assert.ok(!JSON.stringify(navigation).includes(fakeKey));assert.ok(!Object.hasOwn(navigation,'token'));
+  const navigation=await(await fetch(base+'/api/navigation')).json();assert.equal(navigation.tasks[0].id,task.id);assert.deepEqual(Object.keys(navigation.tasks[0]).sort(),['id','kind','recovery','roomId','startedAt','status','title']);assert.ok(!JSON.stringify(navigation).includes(fakeKey));assert.ok(!Object.hasOwn(navigation,'token'));
   const report = await fetch(base + `/api/tasks/${task.id}/report`);
   assert.equal(report.status, 200); assert.match(await report.text(), /尚未验收完成/);
   const traversal = await fetch(base + `/api/tasks/${task.id}/file?path=..%2Ftasks.json`);
   assert.equal(traversal.status, 404);
   assert.ok(!fs.readFileSync(path.join(dir, 'tasks.json'), 'utf8').includes(fakeKey));
   const headers={'X-Relay-Token':state.token};
+  assert.equal((await write('/api/check/inference',{actor:'Codex'},headers)).status,400,'paid probe requires explicit opt-in');
+  const deniedStorage=await write('/api/config',{rememberKey:true},headers);assert.equal(deniedStorage.status,400);assert.match((await deniedStorage.json()).error,/桌面加密/);
+  assert.equal((await write('/api/config',{network:{mode:'custom',url:'http://user:password@example.test'}},headers)).status,400);
+  const savedNetwork=await write('/api/config',{network:{mode:'direct',callTimeoutSeconds:120,idleTimeoutSeconds:0}},headers);assert.equal(savedNetwork.status,200);const networkState=await(await fetch(base+'/api/state')).json();assert.equal(networkState.config.network.mode,'direct');assert.equal(networkState.config.network.callTimeoutSeconds,120);assert.equal(networkState.config.credentialStorage.available,false);assert.ok(!fs.readFileSync(path.join(dir,'network.json'),'utf8').includes(fakeKey));
   const initialProfiles=await(await fetch(base+'/api/model-profiles')).json();
   assert.equal((await write('/api/model-profiles',{action:'activate',id:'default',revision:1})).status,403);
   const settings=initialProfiles.profiles[0].settings;settings.deepseek.temperature=.3;settings.codex.prompt='测试角色指令';settings.codex.rebellion=90;settings.deepseek.rebellion=10;
@@ -51,6 +55,12 @@ test('HTTP 接口拒绝跨域和无令牌写入，密钥不进入状态或任务
   const vendor=await fetch(base+'/vendor/vue.runtime.esm-browser.prod.js');assert.equal(vendor.status,200);
   await write('/api/config', {clearKey:true}, {'X-Relay-Token':state.token}); const blocked = await write('/api/tasks/' + task.id + '/start', {}, {'X-Relay-Token':state.token}); assert.equal(blocked.status, 400); assert.match((await blocked.json()).error, /DeepSeek API Key|Codex CLI.*尚未登录/); const unchanged = await (await fetch(base + '/api/state')).json(); assert.equal(unchanged.tasks[0].calls.length, 0); const page = await fetch(base); assert.match(page.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   const roomResponse=await write('/api/discussions',{direction:'三方对话 HTTP 路由与 CLI 交互测试'}, {'X-Relay-Token':state.token});assert.equal(roomResponse.status,201);const room=await roomResponse.json();assert.equal(room.calls.length,0);assert.equal(room.messages.length,1);
+  const linkedTask=await(await write('/api/tasks',{prompt:'关联本会谈的执行任务',discussionId:room.id},headers)).json();const unrelatedTask=await(await write('/api/tasks',{prompt:'另一个不关联会谈的任务'},headers)).json();
+  const allTasks=await(await fetch(base+'/api/tasks')).json();assert.equal(allTasks.tasks.length,4);assert.equal(allTasks.counts.total,4);assert.equal(allTasks.counts.visible,4);
+  const roomTasks=await(await fetch(base+'/api/tasks?scope=room&room='+room.id)).json();assert.deepEqual(roomTasks.tasks.map(task=>task.id),[linkedTask.id]);assert.equal(roomTasks.counts.total,4);assert.equal(roomTasks.counts.visible,1);
+  const oneTask=await(await fetch(base+'/api/tasks?scope=task&task='+unrelatedTask.id)).json();assert.deepEqual(oneTask.tasks.map(task=>task.id),[unrelatedTask.id]);assert.equal((await fetch(base+'/api/tasks?scope=room')).status,400);
+  const navigationAll=await(await fetch(base+'/api/navigation')).json();assert.equal(navigationAll.tasks.length,4);assert.equal(navigationAll.tasks.find(task=>task.id===linkedTask.id).roomId,room.id);
+  await write(`/api/tasks/${linkedTask.id}/trash`,{},headers);const deleted=await(await fetch(base+'/api/tasks?scope=room&room='+room.id+'&deleted=true')).json();assert.equal(deleted.tasks[0].id,linkedTask.id);await write(`/api/tasks/${linkedTask.id}/restore`,{},headers);assert.equal((await(await fetch(base+'/api/tasks')).json()).tasks.length,4);
   const preview=await(await write('/api/model-preview',{settings},headers)).json();assert.equal(preview.behavior.codex.rebellion,90);assert.match(preview.behavior.codex.instructions,/高度反对倾向/);assert.ok(!Object.hasOwn(preview.deepseek,'rebellion'));
   assert.equal((await write(`/api/discussions/${room.id}/model-profile`,{profileId:'default'})).status,403);
   const applied=await(await write(`/api/discussions/${room.id}/model-profile`,{profileId:'default'},headers)).json();assert.equal(applied.modelProfile.settings.codex.rebellion,90);assert.equal(applied.modelProfile.settings.deepseek.rebellion,10);assert.equal(applied.calls.length,0);assert.equal(applied.stage,'council:ground:0');assert.equal(applied.governance.team.length,3);
@@ -75,4 +85,5 @@ test('HTTP 接口拒绝跨域和无令牌写入，密钥不进入状态或任务
   await awaitText('直接输入方向开始');cli.stdin.write('/resume '+room.id+'\n');await awaitText('会话 '+room.id);await delay(50);
   cli.stdin.write('/status\n');await awaitText('方案 v0');await delay(50);cli.stdin.write('/quit\n');
   const code=await new Promise(resolve=>cli.once('close',resolve));assert.equal(code,0);assert.ok(!cliOutput.includes(fakeKey));
+  const shutdown=await write('/api/shutdown',{},headers);assert.equal(shutdown.status,200);assert.deepEqual(await shutdown.json(),{stopping:true});const exited=await Promise.race([new Promise(resolve=>proc.exitCode!==null?resolve(proc.exitCode):proc.once('exit',resolve)),delay(8000,undefined,{ref:false})]);assert.equal(exited,0,'graceful shutdown must deliver its response and exit cleanly');
 });

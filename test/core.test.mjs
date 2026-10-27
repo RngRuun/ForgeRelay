@@ -159,3 +159,8 @@ test('人工在复查后修改文件也会让文件证据失效', async t => {
   fs.writeFileSync(path.join(task.workspace, 'result.txt'), '复查之后的人工改动');
   assert.ok(completionProblems(task).some(x => x.includes('文件已变更')));
 });
+test('重启中断执行但保留文件与已知用量，未知用量不伪装成零',t=>{
+ const {w}=fixture(t),task=w.create({prompt:'进程中断恢复回归测试'});fs.mkdirSync(task.workspace,{recursive:true});fs.writeFileSync(path.join(task.workspace,'keep.txt'),'existing result');task.status='running';task.calls=[{id:'incomplete-call',actor:'Codex',status:'running',partialOutput:'already received'},{id:'completed-call',actor:'DeepSeek',status:'succeeded',usage:{prompt_tokens:100,completion_tokens:10}}];w.persist();
+ const restarted=new Workbench({dir:w.dir,codex:()=>assert.fail('Must not restart automatically'),deepseek:()=>assert.fail('Must not restart automatically')});const recovered=restarted.get(task.id);
+ assert.equal(recovered.status,'interrupted');assert.equal(recovered.recovery.previousStatus,'running');assert.equal(recovered.recovery.acknowledged,false);assert.equal(recovered.calls[0].status,'interrupted');assert.equal(recovered.calls[0].usageKnown,false);assert.equal(recovered.usageIncomplete,true);assert.equal(recovered.calls[0].partialOutput,'already received');assert.deepEqual(recovered.calls[1].usage,{prompt_tokens:100,completion_tokens:10});assert.equal(fs.readFileSync(path.join(recovered.workspace,'keep.txt'),'utf8'),'existing result');assert.equal(restarted.queue.length,0);
+});

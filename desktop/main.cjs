@@ -1,11 +1,12 @@
 'use strict';
-const {app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, nativeTheme, protocol, net, screen} = require('electron');
+const {app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, nativeTheme, protocol, net, screen, safeStorage, session} = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const {spawn} = require('node:child_process');
 const {randomUUID} = require('node:crypto');
 const {pathToFileURL} = require('node:url');
-const {desktopConfig, navigationAllowed, downloadAllowed, externalURL, activeItems, windowBounds} = require('./policy.cjs');
+const {desktopConfig, engineCompatible, navigationAllowed, downloadAllowed, externalURL, activeItems, windowBounds} = require('./policy.cjs');
+const {createCredentialStore}=require('./credentials.cjs');
 
 protocol.registerSchemesAsPrivileged([{scheme:'forgerelay', privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
 app.setPath('userData', process.env.FORGERELAY_DESKTOP_HOME ? path.resolve(process.env.FORGERELAY_DESKTOP_HOME) : path.join(app.getPath('appData'),'ForgeRelay'));
@@ -16,15 +17,18 @@ if (!locked) { app.quit(); } else {
   let phase = {state:'connecting', message:'正在连接本地协作引擎…'};
   const resources = app.isPackaged ? process.resourcesPath : __dirname;
   const engineRoot = app.isPackaged ? path.join(resources,'engine') : path.resolve(__dirname,'..');
+  const networkPolicy=require(path.join(engineRoot,'network-policy.cjs'));
+  const credentials=createCredentialStore(app.getPath('userData'),safeStorage);
+  let keyState={key:'',saved:false},encryptionAvailable=false,detectedProxy='';
   const icon = path.join(__dirname,'assets','forgerelay.ico');
   const startup = 'forgerelay://desktop/';
   const delay = ms => new Promise(resolve => setTimeout(resolve,ms));
   const log = event => {
     try { fs.appendFileSync(path.join(app.getPath('userData'),'desktop.log'),JSON.stringify({at:new Date().toISOString(),event})+'\n'); } catch {}
   };
-  function show() { if (!window || window.isDestroyed()) createWindow(); if (window.isMinimized()) window.restore(); window.show(); window.focus(); }
+  function show() { if(quitting)return;if (!window || window.isDestroyed()) createWindow(); if (window.isMinimized()) window.restore(); window.show(); window.focus(); }
   function trusted(event) {
-    return window && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame &&
+    return window && !window.isDestroyed() && !window.webContents.isDestroyed() && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame &&
       (navigationAllowed(event.senderFrame.url, origin) || event.senderFrame.url === startup);
   }
   function handle(channel, fn) { ipcMain.handle(channel, async event => { if (!trusted(event)) throw new Error('此页面无权调用桌面功能'); return fn(); }); }
@@ -34,12 +38,15 @@ if (!locked) { app.quit(); } else {
     return response.json();
   }
   async function health() { try { const h=await request('/api/health'); return h.app==='relay-workbench' ? h : null; } catch { return null; } }
-  function updatePhase(state,message) { phase={state,message}; window?.webContents.send('desktop:action',{type:'connection',...phase}); }
+  function updatePhase(state,message) { phase={state,message};if(!quitting&&window&&!window.isDestroyed()&&!window.webContents.isDestroyed())window.webContents.send('desktop:action',{type:'connection',...phase}); }
+  async function loadWindow(url){const target=window;if(quitting||!target||target.isDestroyed())return false;try{await target.loadURL(url);return !quitting&&!target.isDestroyed();}catch(error){if(quitting||target.isDestroyed()||error.code==='ERR_ABORTED'||error.errno===-3)return false;updatePhase('failed','页面暂时无法加载，可重新连接引擎');log('window:load-failed');return false;}}
   async function attach() {
     if (connecting) return connecting;
     connecting = (async () => {
       ready=false; updatePhase('connecting','正在连接本地协作引擎…');
       let info=await health();
+      if(quitting||!window||window.isDestroyed())return{ok:false,cancelled:true};
+      if(info&&!engineCompatible(info,app.getVersion()))throw Error('检测到旧版本或不兼容的后台（'+String(info.version||'未知版本')+'）。请从系统托盘退出旧版应用，或停止旧 CLI 服务，再点击重新连接。记录会保留，不会自动终止其他后台。');
       if (info && !engine) { log('engine:attached-external'); }
       else if (!engine) {
         const bundled = path.join(resources,'runtime','node.exe');
@@ -48,27 +55,40 @@ if (!locked) { app.quit(); } else {
         engineId=randomUUID();
         engine=spawn(bundled,[path.join(engineRoot,'server.mjs')],{
           cwd:engineRoot,windowsHide:true,stdio:['ignore','ignore','ignore','ipc'],
-          env:{...process.env,PORT:String(config.port),RELAY_DATA_DIR:config.dataDir,FORGERELAY_DESKTOP_MANAGED:'1',FORGERELAY_ENGINE_ID:engineId}
+          env:{...process.env,DEEPSEEK_API_KEY:process.env.DEEPSEEK_API_KEY||keyState.key,FORGERELAY_KEY_SOURCE:process.env.DEEPSEEK_API_KEY?'environment':keyState.key?'encrypted':'none',FORGERELAY_KEY_SAVED:keyState.saved?'1':'0',FORGERELAY_CREDENTIAL_STORE:encryptionAvailable?'available':'unavailable',FORGERELAY_CREDENTIAL_NOTICE:keyState.error||'',FORGERELAY_SYSTEM_PROXY:detectedProxy,PORT:String(config.port),RELAY_DATA_DIR:config.dataDir,FORGERELAY_DESKTOP_MANAGED:'1',FORGERELAY_ENGINE_ID:engineId}
         });
         const child=engine;
+        child.on('message',async message=>{
+          if(child!==engine||message?.channel!=='forgerelay-private-v1'||typeof message.id!=='string')return;
+          let result,error;
+          try{
+            if(message.method==='credential:save'){result=await credentials.save(message.payload?.key);keyState=await credentials.load();}
+            else if(message.method==='credential:clear'){result=await credentials.clear();keyState={key:'',saved:false};}
+            else if(message.method==='network:system'){const resolved=await session.defaultSession.resolveProxy('https://chatgpt.com/');detectedProxy=networkPolicy.systemProxy(resolved);result={proxy:detectedProxy};}
+            else throw Error('不支持的桌面请求');
+          }catch{error='桌面加密存储或系统代理操作失败；未使用明文存储回退。';}
+          if(child===engine&&child.connected)child.send({channel:'forgerelay-private-v1',replyTo:message.id,result,error},()=>{});
+        });
         child.once('error',()=>{if(engine===child)engine=null; updatePhase('failed','协作引擎无法启动，请检查数据目录和运行环境');log('engine:spawn-error');});
         child.once('exit',()=>{
           if(engine===child)engine=null;
-          if(!quitting) { ready=false; updatePhase('failed','本地协作引擎已退出。可重新连接；任务不会自动启动。'); void window?.loadURL(startup); }
+          if(!quitting) { ready=false; updatePhase('failed','本地协作引擎已退出。可重新连接；任务不会自动启动。'); void loadWindow(startup); }
           log('engine:exit');
         });
         log('engine:started-owned');
         for(let i=0;i<80;i++) {
           if(!engine) break;
           info=await health();
+          if(quitting||!window||window.isDestroyed())return{ok:false,cancelled:true};
           if(info?.desktopEngineId===engineId) break;
           info=null; await delay(250);
         }
         if(!info) throw new Error('协作引擎启动超时，或本地端口被其他程序占用');
       }
       if(!info) throw new Error('本地协作引擎暂不可用');
+      if(!engineCompatible(info,app.getVersion()))throw Error('本地引擎与桌面版本不一致，请重新解压完整更新包。');
       ready=true; updatePhase('ready','本地引擎已连接');
-      await window.loadURL(origin+'/discussion?new=1');
+      if(!await loadWindow(origin+'/discussion?new=1'))return{ok:false,cancelled:quitting};
       log('window:ready');
       return {ok:true};
     })().catch(error=>{updatePhase('failed',error.message);log('engine:connect-failed');return {ok:false};}).finally(()=>{connecting=null;});
@@ -103,7 +123,7 @@ if (!locked) { app.quit(); } else {
     }
     quitting=true; await stopOwned(); log('app:quit'); app.quit();
   }
-  function navigate(route) { show(); if(ready) void window.loadURL(origin+route); }
+  function navigate(route) { show(); if(ready) void loadWindow(origin+route); }
   function menus() {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       {label:'文件',submenu:[
@@ -143,15 +163,15 @@ if (!locked) { app.quit(); } else {
     wc.on('will-navigate',navigation);wc.on('will-redirect',navigation);
     wc.setWindowOpenHandler(({url})=>{
       if(downloadAllowed(url,origin)) wc.downloadURL(url);
-      else if(navigationAllowed(url,origin))void window.loadURL(url);
+      else if(navigationAllowed(url,origin))void loadWindow(url);
       else {const safe=externalURL(url);if(safe)void shell.openExternal(safe);}
       return {action:'deny'};
     });
     wc.on('will-prevent-unload',event=>{ /* Preserve the renderer's unsaved-input protection. */ });
     wc.on('did-fail-load',(_event,code,_description,url,isMainFrame)=>{
-      if(isMainFrame&&code!==-3&&url!==startup&&!quitting){ready=false;updatePhase('failed','页面连接中断，请重新连接本地引擎');void window.loadURL(startup);}
+      if(isMainFrame&&code!==-3&&url!==startup&&!quitting){ready=false;updatePhase('failed','页面连接中断，请重新连接本地引擎');void loadWindow(startup);}
     });
-    void window.loadURL(startup);
+    void loadWindow(startup);
   }
   function saveBounds() {
     if(!window || window.isDestroyed() || window.isMinimized() || window.isMaximized() || window.isFullScreen()) return;
@@ -162,6 +182,8 @@ if (!locked) { app.quit(); } else {
   app.on('window-all-closed',()=>{if(quitting)app.quit();});
   app.whenReady().then(async()=>{
     fs.mkdirSync(app.getPath('userData'),{recursive:true});
+    encryptionAvailable=await credentials.available();keyState=await credentials.load();
+    try{detectedProxy=networkPolicy.systemProxy(await session.defaultSession.resolveProxy('https://chatgpt.com/'));}catch{detectedProxy='';}
     nativeTheme.themeSource='dark';
     const sidecar=process.env.FORGERELAY_DESKTOP_CONFIG || path.join(process.env.PORTABLE_EXECUTABLE_DIR || (app.isPackaged?path.dirname(process.execPath):__dirname),'ForgeRelay.config.json');
     let input={};try{input=JSON.parse(fs.readFileSync(sidecar,'utf8'));}catch(error){if(error.code!=='ENOENT')throw new Error('ForgeRelay.config.json 无法读取，请检查 JSON 格式');}
@@ -190,5 +212,5 @@ if (!locked) { app.quit(); } else {
     tray.setContextMenu(Menu.buildFromTemplate([{label:'打开 ForgeRelay',click:show},{label:'三方会谈',click:()=>navigate('/discussion')},{label:'任务控制',click:()=>navigate('/workbench#control')},{type:'separator'},{label:'退出',click:()=>void quit()}]));
     tray.on('double-click',show);
     log('app:started');await attach();
-  }).catch(error=>{dialog.showErrorBox('ForgeRelay 无法启动',error.message);quitting=true;app.quit();});
+  }).catch(error=>{if(quitting)return;dialog.showErrorBox('ForgeRelay 无法启动',error.message);quitting=true;app.quit();});
 }

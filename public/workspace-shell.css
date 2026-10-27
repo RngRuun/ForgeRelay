@@ -34,6 +34,16 @@ body.relay-glass:is(.discussion-app,.models-app,.workbench-app) .heading-actions
 body.relay-glass:is(.discussion-app,.models-app,.workbench-app) .heading-actions :is(button,.execution-entry,.discussion-entry,.room-menu>summary){min-height:38px;font-size:12px;padding:9px 12px}
 body.relay-glass:is(.discussion-app,.models-app,.workbench-app) .workspace-list-toggle{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:9px;flex:none}
 .workspace-list-toggle svg{width:19px;height:19px;stroke:currentColor;stroke-width:1.5}
+.workspace-list-toggle{position:relative}
+.workspace-list-count{position:absolute;right:-5px;top:-6px;min-width:18px;padding:2px 4px;border-radius:5px;background:#253c33;color:#e2f1e7;font:11px var(--mono);border:1px solid #cfe1d42e}
+.global-work-status{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;margin:16px 3px 0;padding:13px 0;color:#e8ceaf;font-size:10px;text-align:center;border:1px solid #d6b18130;border-radius:8px;line-height:1.6}
+.global-work-status svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.4}
+.task-scope-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:12px 16px;margin:0 0 16px;border:1px solid var(--line);border-radius:9px;font-size:12px;color:var(--muted)}
+.task-scope-bar>div{display:flex;gap:6px;flex-wrap:wrap}.task-scope-bar button{min-height:34px;padding:7px 10px;font-size:12px}.task-scope-bar button[aria-pressed=true]{color:var(--text);border-color:#dceade55}
+.call-live-summary,.restart-notice{padding:14px 0;margin:0 0 16px;border-bottom:1px solid var(--line);font-size:13px;line-height:1.8}
+.call-live-summary>b,.restart-notice>b{display:block;font-size:14px;font-weight:500}.call-live-summary>span,.call-live-summary>small{display:block;color:var(--muted)}.restart-notice{color:#e2c6a3}.restart-notice button{margin-top:8px}
+.conversation-participation{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 24px;border-bottom:1px solid var(--line);flex-shrink:0;font-size:12px;line-height:1.7}.conversation-participation p{margin:0}.conversation-participation small{display:block;color:var(--muted)}.conversation-participation button{flex-shrink:0;font-size:12px;padding:8px 11px}
+@media(max-width:650px){.conversation-participation{padding:11px 14px;flex-wrap:wrap;gap:8px}.task-scope-bar{padding:10px 12px;gap:9px}}
 body.relay-glass:is(.discussion-app,.models-app,.workbench-app) .workspace-list-close{display:none}
 body.relay-glass[data-workspace-list=collapsed] :is(.shell,.lab-body,.app-shell){grid-template-columns:minmax(0,1fr)!important}
 body.relay-glass[data-workspace-list=collapsed] :is(.room-rail,.profile-rail,.project-rail){display:none!important}
@@ -208,3 +218,13 @@ body.relay-glass.discussion-app main:has(#new-form) .room-heading .heading-actio
   body.relay-glass.models-app .page-heading>.back-discussion{margin-left:46px;padding:9px 12px}
   body.relay-glass.discussion-app .mobile-start-bar:not([hidden]){left:var(--global-rail-width);bottom:env(safe-area-inset-bottom,0px);padding:12px 16px}
 }
+.credential-option{display:flex;align-items:flex-start;gap:12px;padding:16px 0;color:var(--ink,#dce8e1)}
+.credential-option input{width:18px;height:18px;flex:none;margin-top:3px;accent-color:#bdcfc2}
+.credential-option small{display:block;font-size:12px;color:var(--muted,#94a69e);line-height:1.7;margin-top:5px}
+.network-settings{border:1px solid #bad0c31c;margin:20px 0;padding:20px;min-width:0;border-radius:12px}
+.network-settings legend{padding:0 8px;font-size:14px}
+.network-state,.inference-result{color:var(--muted,#94a69e);font-size:13px;line-height:1.8;overflow-wrap:anywhere}
+.settings-panel .settings-actions{flex-wrap:wrap}
+
+.global-work-status{font-size:11px}.conversation-participation small{font-size:12px}.room-menu>summary{gap:6px}
+@media(max-width:650px){body.relay-glass.discussion-app .heading-actions .room-menu>summary{font-size:20px}.room-menu-label{display:none}body.relay-glass.discussion-app .heading-actions .room-menu>summary::before{content:none}}

@@ -1,4 +1,14 @@
 import {budgetField,readBudgetInputs,mountBudgetToggles} from './budget-limits.js';
+// BFCache can retain a document. Release streaming connections before leaving,
+// and recreate them when restored so repeated navigation cannot consume the
+// browser's per-origin connection pool and stall mutations such as delete.
+export function createLifecycleEventSource(url,{target=window,EventSourceImpl=EventSource}={}){
+  let stream=null,closed=false;const handlers={onmessage:null,onerror:null};
+  const suspend=()=>{stream?.close();stream=null;};
+  const connect=()=>{if(closed||stream)return;const source=stream=new EventSourceImpl(url);for(const name of ['onmessage','onerror'])source[name]=event=>{if(stream===source)handlers[name]?.(event);};};
+  target.addEventListener('pagehide',suspend);target.addEventListener('pageshow',connect);connect();
+  return{get onmessage(){return handlers.onmessage;},set onmessage(value){handlers.onmessage=value;},get onerror(){return handlers.onerror;},set onerror(value){handlers.onerror=value;},close(){closed=true;suspend();target.removeEventListener('pagehide',suspend);target.removeEventListener('pageshow',connect);}};
+}
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // Callers explicitly select draft fields. Credentials, API state and File objects

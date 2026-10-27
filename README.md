@@ -1,40 +1,47 @@
-# ForgeRelay 0.6.1 · 智能体协作桌面应用
+# ForgeRelay 0.6.3 · 智能体协作桌面应用
 
 一个本地运行的「人 + Codex + DeepSeek」CLI 和可视化协作应用。人确定方向，Codex 拆分工作、主持整合并验收，DeepSeek 既能执行明确派工，也保留独立质疑权。没有真实模型接入就不会生成模型发言或工具成果。
 
 ## 启动
 
-Windows 免安装版在 [GitHub Releases](https://github.com/RngRuun/ForgeRelay/releases/latest) 下载 `ForgeRelay-0.6.1-Windows-x64.exe`，双击即可启动。内置 Electron 和 Node.js 22.23.4，无须安装浏览器或 Node.js，也不需要管理员权限。私有仓库的下载需要有权限的 GitHub 账号。
+Windows 免安装版在 [GitHub Releases](https://github.com/RngRuun/ForgeRelay/releases/latest) 下载 `ForgeRelay-0.6.3-Windows-x64-portable.zip`，解压后双击固定入口 `ForgeRelay.exe`。内置 Electron 和 Node.js 22.23.4，无须安装浏览器或 Node.js，也不需要管理员权限。
 
-Release 同时提供 SHA-256 校验文件。应用尚未做代码签名，Windows 可能显示发行者验证提示。本机开发目录的打包结果仍位于相邻目录 `ForgeRelay-App/`；使用 `win-unpacked/ForgeRelay.exe` 时须保留完整目录。
+从 0.6.1 / 0.6.2 升级：从托盘退出旧版本，把新 ZIP 解压到临时文件夹，双击 `Update-ForgeRelay.cmd` 并选择原应用文件夹。更新器验证文件并备份旧程序，兼容旧 exe 文件名和快捷方式；不覆盖 `ForgeRelay.config.json`、个人数据和加密凭据。失败自动回滚，运行中应用不会被强制终止。已经使用固定 `ForgeRelay.exe` 的版本，退出后也可直接把新包覆盖到原目录。
+
+Release 同时提供 SHA-256 校验文件、更新说明和验收报告。应用尚未做代码签名，Windows 可能显示发行者验证提示。本机开发目录的打包结果仍位于相邻目录 `ForgeRelay-App/`；使用 `win-unpacked/ForgeRelay.exe` 时须保留完整目录。
 
 实际模型执行需为参与的供应商配置接入：Codex 需要安装并登录本机 CLI，DeepSeek 需要有效 API Key。也支持仅一个模型参与。外部技能、Python 文档解析和 Computer Use 依赖按下文配置。发行包不包含任何用户凭证、会话或项目文件。
 
-- 双击 `打开应用.cmd` 启动真正的桌面程序；三方会谈为默认首页。应用会自动启动或复用本机协作引擎。
+- 源码包先安装 Node.js 22.19 或更新版本，再双击 `打开应用.cmd`（或运行 `npm run desktop:start`）。首次会自动准备锁定的 npm 依赖、Electron 和内置 Node.js；需要联网，后续启动复用本地文件。无需另外寻找 `ForgeRelay-App` 构建目录。
 - 双击 `三方对话.cmd`，或在本目录运行 `npm run chat`。
 - 双击 `启动ForgeRelay.cmd` 同样打开桌面应用。`start.ps1` 保留为 CLI / 浏览器调试入口。
 - CLI 输入 `/key` 隐藏输入密钥，再用 `/check` 验证；也可在应用「模型接入」中配置。
-- 密钥仅保存在当前后台服务内存；服务重启需要重新输入。不会保存到浏览器存储、任务文件或源码。
+- 密钥默认仅保存在本次后台内存；桌面用户可主动勾选本机加密记住。不会保存到浏览器存储、任务文件或源码。
 - CLI 与桌面共享同一后台与会话。`/quit` 暂停讨论并退出终端；`stop.ps1` 停止后台。
 
 ## 从源码运行与构建
 
-基础服务只使用 Node.js 内置模块。使用 Node.js 22 或更新版本，在仓库根目录运行 `npm start`，或通过 `npm run chat` 使用 CLI。运行回归测试使用 `npm test`；文档解析相关测试需要 Python 3，可通过 `RELAY_PYTHON` 指定解释器；独立浏览器测试需要 Playwright 1.62.1 和 Microsoft Edge，可用 `npm install --no-save --package-lock=false playwright@1.62.1` 准备。测试不会调用真实付费模型，也不要求已有 Codex 登录。
+基础服务使用 Node.js 与锁定版本的 Undici（仅用于代理网络传输）。使用 Node.js 22.19.0 或更新版本，先在仓库根目录执行 `npm ci`，再运行 `npm start`，或通过 `npm run chat` 使用 CLI。运行回归测试使用 `npm test`；文档解析相关测试需要 Python 3，可通过 `RELAY_PYTHON` 指定解释器；独立浏览器测试需要 Playwright 1.62.1 和 Microsoft Edge，可用 `npm install --no-save --package-lock=false playwright@1.62.1` 准备。测试不会调用真实付费模型，也不要求已有 Codex 登录。
 
 Windows 构建：
 
 ```powershell
-npm ci --prefix desktop --registry https://registry.npmjs.org
+npm ci --registry https://registry.npmjs.org
+cd desktop
+npm ci --registry https://registry.npmjs.org
+cd ..
 npm run desktop:dist
 ```
 
 构建脚本从 Node.js 官方站点下载固定版本的 Windows x64 运行时并验证 SHA-256。程序生成在仓库相邻的 `ForgeRelay-App/` 目录。源码不提交运行时二进制、开发依赖、用户数据或本机侧边配置。GitHub Actions 提供回归检查及手动 Windows 构建。检查说明见 [RELEASE-CHECKS.md](RELEASE-CHECKS.md)。
 
+提交并确认工作树干净后，可执行 `python tools/package-release.py --executable ../ForgeRelay-App/ForgeRelay-0.6.3-Windows-x64.exe --output ../ForgeRelay-Release` 生成固定入口覆盖 ZIP、对应提交的源码 ZIP、文件清单和 SHA-256。打包脚本扫描敏感信息并排除个人数据；版本与后台健康检查统一读取 `package.json`。
+
 桌面菜单支持新建会谈（Ctrl+N）、添加附件（Ctrl+O）、切换三方会谈 / 任务控制 / 模型实验室（Ctrl+1/2/3）、缩放和打开数据目录。项目输入框旁可调用原生文件夹选择；附件可直接拖入会谈。关闭由应用管理的执行中窗口时，可选择托盘继续或停止并退出。复用 CLI 已启动的引擎时，退出桌面窗口会保留该引擎。
 
 首次在其他机器运行时，数据保存到 `%APPDATA%/ForgeRelay/data`。本机发行目录旁的 `ForgeRelay.config.json` 指向现有源码数据目录，保留全部原有记录。该文件只含 `dataDir` 和 `port`，没有密钥；移动应用时可移除此文件使用默认目录，或指定一个本机绝对路径。请勿同时启动两个引擎写入同一个数据目录。
 
-源码桌面构建：在 `desktop/` 执行 `npm ci`，把 Node.js 22+ 的 `node.exe` 和对应许可证放入 `desktop/runtime/`，然后执行 `npm run dist`。`npm run pack` 生成解压目录版。
+源码桌面运行无需先打包；`node tools/start-desktop.mjs --prepare-only` 可只准备并校验启动环境。构建免安装版使用根目录 `npm run desktop:dist`，自动下载并校验固定 Node.js 运行时。`desktop/` 中的 `npm run pack` 生成解压目录版。
 
 例如先在 CLI 输入：
 
@@ -117,7 +124,7 @@ CLI 同步支持 `/discuss`、`/direct`、`/lead 角色ID`、`/rebellion codex|d
 
 分别设置 Codex 和 DeepSeek 的模型 ID、角色提示词、推理参数与共享 Harness 工具开关。可复制、命名、保存、切换、导入与导出配置。预览使用后端真实适配器的参数转换逻辑，不产生推理费用。DeepSeek 思考模式不发送 temperature，Top P 仅在已确认支持的模型与模式下发送。未知模型由提供商确认能力。
 
-配置文件为 data/model-profiles.json，不保存接入密钥。API Key 只在服务进程内存中，重启后需重新输入。新会话固定配置快照，派工与子代理继承；无快照的旧会话首次继续时采用当前配置，并重新确认角色与协议。Codex 留空参数仍继承 CLI 当前本机设置，需完全固定时请显式填写。
+配置文件为 data/model-profiles.json，不保存接入密钥。API Key 默认只在服务进程内存中；桌面用户可在接入页主动选择本机加密保存。新会话固定配置快照，派工与子代理继承；无快照的旧会话首次继续时采用当前配置，并重新确认角色与协议。Codex 留空参数仍继承 CLI 当前本机设置，需完全固定时请显式填写。
 
 CLI：/models 查看页面地址；/profiles 列出配置；/profile ID 为新会话切换配置。工具开关只限制 ForgeRelay 共享 Harness；Codex 原生技能、工具和连接器仍由本机 CLI 配置管理。
 
@@ -138,3 +145,12 @@ CLI：/models 查看页面地址；/profiles 列出配置；/profile ID 为新�
 ## 审议风格与交互升级
 
 双方可在模型实验室分别调节 0–100 的叛逆值，并在暂停后明确应用到现有会话；CLI 支持 `/apply-profile 配置ID`。Codex 同时承担复杂代码、算法修改和独立复核。见 [PERSONALITY.md](PERSONALITY.md)。玻璃实体、鼠标联动、滑杆与模式选择的说明见 [INTERACTION-DESIGN.md](INTERACTION-DESIGN.md)；缓存的真实诊断与边界见 [CACHE-DESIGN.md](CACHE-DESIGN.md)。
+
+
+### 本地接入与诊断
+
+模型接入页提供系统/环境代理、自定义 HTTP(S) 代理与直连。CLI 和 DeepSeek 请求使用同一代理策略，本机地址绕过代理。默认单次调用最长 900 秒；Codex 无事件超时默认关闭，避免误停长时间思考。修改设置需等待执行结束。
+
+“验证连接”只检查登录、模型列表与网络端点，不发起模型推理。“真实推理测试”会产生所选模型的真实用量，记录独立保存在本机 connection-checks.json。测试结果不冒充业务任务或协商投票。
+
+密钥默认只用于本次运行。由桌面应用管理的后台可自愿开启 Windows 用户级加密记住密钥；加密不可用时拒绝保存，不回退到明文。该加密不防御同一 Windows 用户下的其他程序。清除操作同时移除当前密钥及本机加密副本；环境变量注入的密钥在下次启动时仍由环境控制。

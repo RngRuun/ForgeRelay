@@ -10,6 +10,9 @@ function desktopConfig(input = {}, fallback) {
   if (typeof dataDir !== 'string' || !path.isAbsolute(dataDir) || /[\x00-\x1f]/.test(dataDir)) throw new Error('数据目录必须是本机绝对路径');
   return {port, dataDir: path.resolve(dataDir)};
 }
+function engineCompatible(info,version){
+  return !!info && info.app==='relay-workbench' && info.version===version && info.frontendAssetsVersion===1;
+}
 function localURL(value, origin) {
   try { const u = new URL(value); return u.origin === origin && !u.username && !u.password ? u : null; } catch { return null; }
 }
@@ -30,4 +33,4 @@ function windowBounds(input, area) {
   const x = Number(input?.x), y = Number(input?.y);
   return {width, height, ...(Number.isFinite(x) && Number.isFinite(y) && x >= area.x && x + 100 <= area.x + area.width && y >= area.y && y + 100 <= area.y + area.height ? {x,y} : {})};
 }
-module.exports = {desktopConfig, localURL, navigationAllowed, downloadAllowed, externalURL, activeItems, windowBounds};
+module.exports = {desktopConfig, engineCompatible, localURL, navigationAllowed, downloadAllowed, externalURL, activeItems, windowBounds};

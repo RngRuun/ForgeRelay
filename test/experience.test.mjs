@@ -60,3 +60,8 @@ test('复制发言包含公开审查依据、反例、异议与完整方案，�
   const result=messageCopyText({text:'公开结论',privateReasoning:'不得进入剪贴板',detail:{analysis:[{topic:'边界',position:'反对当前方案',evidence:'实际证据',alternative:'完整反例'}],objections:[{title:'遗漏',reason:'原因',change:'解决条件'}],replies:[{objectionId:'O1',response:'逐项回应'}],proposal:'完整方案文本'}});
   for(const text of ['公开结论','实际证据','完整反例','解决条件','逐项回应','完整方案文本'])assert.ok(result.includes(text));assert.ok(!result.includes('不得进入剪贴板'));
 });
+import {createLifecycleEventSource} from '../public/experience.js';
+test('离页释放 SSE，浏览器后退恢复连接；显式关闭后不再重连',()=>{
+ const created=[],target=new EventTarget();class Source{constructor(url){this.url=url;this.closed=false;created.push(this);}close(){this.closed=true;}}
+ const channel=createLifecycleEventSource('/events',{target,EventSourceImpl:Source}),messages=[];channel.onmessage=event=>messages.push(event.data);created[0].onmessage({data:'first'});target.dispatchEvent(new Event('pagehide'));assert.equal(created[0].closed,true);created[0].onmessage({data:'stale'});assert.deepEqual(messages,['first']);target.dispatchEvent(new Event('pageshow'));assert.equal(created.length,2);created[1].onmessage({data:'restored'});assert.deepEqual(messages,['first','restored']);channel.close();assert.equal(created[1].closed,true);target.dispatchEvent(new Event('pageshow'));assert.equal(created.length,2);
+});

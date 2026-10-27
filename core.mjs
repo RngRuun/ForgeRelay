@@ -59,7 +59,7 @@ export class Workbench {
       this.tasks.forEach(t => {
         t.legacy = t.mode === 'demo';
         Object.assign(t, { board: t.board || [], proposals: t.proposals || [], issues: t.issues || [], notes: t.notes || [], calls: t.calls || [], decisions: t.decisions || [], reviews: t.reviews || [], contextRequests: t.contextRequests || [], inputs: t.inputs || [], acceptance: t.acceptance || [], toolCalls: t.toolCalls || [] });
-        if (ACTIVE.includes(t.status)) { t.status = 'interrupted'; t.error = '服务已重启；历史与文件已保留，可重新运行。'; }
+        if (ACTIVE.includes(t.status)) { t.recovery={kind:'engine-restart',previousStatus:t.status,detectedAt:now(),acknowledged:false};t.status = 'interrupted';t.activity=null; t.error = '服务已重启；历史与文件已保留，请复制为新任务继续。';for(const call of t.calls)if(call.status==='running'){call.status='interrupted';call.finishedAt=now();call.usageKnown=!!call.usage;if(!call.usageKnown)t.usageIncomplete=true;call.error='服务重启，未收到此调用的最终结果；未知用量不记为零。';} }
       }); this.persist();
     }
   }
@@ -112,7 +112,7 @@ export class Workbench {
     if (budgetReached(t.calls.length,t.maxCalls)) throw new BudgetError('已到实际调用次数上限，停止调度；成果未标记为完成。');
     if (budgetReached(Object.values(t.usage).reduce((a, b) => a + b, 0),t.tokenBudget)) throw new BudgetError('已到 token 预算上限，停止新增调用；最后一次调用可能使总量超过上限。');
   }
-  beginCall(t, actor, purpose) { this.budget(t); const c = { id: randomUUID(), actor, purpose, cacheVersion:1, status: 'running', startedAt: now(), inputTokens: 0, outputTokens: 0, providerId: '' }; t.calls.push(c); t.activity = { actor, purpose, startedAt: c.startedAt }; this.emit(); return c; }
+  beginCall(t, actor, purpose) { this.budget(t); const c = { id: randomUUID(), actor, purpose, cacheVersion:1, status: 'running', startedAt: now(), inputTokens: 0, outputTokens: 0, providerId: '' }; t.calls.push(c); t.activity = { actor, purpose, startedAt: c.startedAt }; this.note(t,actor,'执行现场','call_start',`${actor} 正在执行 ${purpose}，等待模型返回。`,{callId:c.id}); return c; }
   usage(t, call, u) {
     call.usage=u;(call.usageEvents||=[]).push(u);
     const input = u.input_tokens ?? u.prompt_tokens ?? 0, output = u.output_tokens ?? u.completion_tokens ?? 0;
@@ -124,10 +124,10 @@ export class Workbench {
     await this.checkpoint(t, signal); const call = this.beginCall(t, 'Codex', purpose);
     try {
       const output = await this.codex({ task: t, prompt, signal, purpose, ...options,
-        onEvent: (type, text) => this.note(t, 'Codex', '工作区', type, text, { callId: call.id }),
+        onEvent: (type, text) => {if(type==='call_progress'){call.progress=JSON.parse(text);t.activity={...t.activity,...call.progress};this.emit();}else this.note(t, 'Codex', '工作区', type, text, { callId: call.id });},
         onUsage: u => this.usage(t, call, u), onTrace: id => { call.providerId = id; this.emit(); } });
       signal.throwIfAborted(); call.status = 'succeeded'; call.finishedAt = now(); t.activity = null; this.emit(); return output;
-    } catch (err) { call.status = signal.aborted ? 'cancelled' : 'failed'; call.error = err.message; call.finishedAt = now(); t.activity = null; this.emit(); throw err; }
+    } catch (err) { call.status = signal.aborted ? 'cancelled' : 'failed'; call.error = err.message;if(err.partialOutput)call.partialOutput=err.partialOutput;call.retryCount=err.retryCount||0; call.finishedAt = now(); t.activity = null; this.emit(); throw err; }
   }
   async callDeepseek(t, instruction, signal, unitId, purpose,options={}) {
     if(!activeProviders(t).includes('DeepSeek'))throw Error('当前团队未启用 DeepSeek');
@@ -159,7 +159,7 @@ export class Workbench {
     return result.text;
   }
   context(t) {
-    return JSON.stringify({ requirement: t.prompt, kind: t.kind, sourceDiscussion:t.sourceDiscussion, board: t.board, acceptance: t.acceptance, issues: t.issues, notes: t.notes, proposals: t.proposals.map(x => ({ id: x.id, path: x.path, status: x.status, rationale: x.rationale, before: x.before.slice(0, 12000), after: x.after.slice(0, 12000) })), reviews: t.reviews, contextRequests: t.contextRequests.slice(-10), humanInputs: t.inputs, decisions: t.decisions.slice(-12), workspaceVersion: t.workspaceVersion, lastReviewVersion: t.lastReviewVersion }, null, 2);
+    return JSON.stringify({ requirement: t.prompt, kind: t.kind, sourceDiscussion:t.sourceDiscussion, board: t.board, acceptance: t.acceptance, issues: t.issues, notes: t.notes, proposals: t.proposals.map(x => ({ id: x.id, path: x.path, status: x.status, rationale: x.rationale, before: x.before.slice(0, 12000), after: x.after.slice(0, 12000) })), reviews: t.reviews, contextRequests: t.contextRequests.slice(-10), humanInputs: t.inputs, decisions: t.decisions.slice(-12), workspaceVersion: t.workspaceVersion, lastReviewVersion: t.lastReviewVersion });
   }
   setPlan(t, action) {
     const merged = [...t.board.map(n => ({ id: n.id, title: n.title, owner: n.owner, dependsOn: n.dependsOn }))];
@@ -280,11 +280,11 @@ export class Workbench {
   async run(t, signal) {
     const rules = `你是本地双模型团队的负责人 Codex。你在调度回路中，每次只选择一个真实动作，输出符合 schema 的 JSON，所有不使用的字符串填空、数组填[]。不能假装执行或假装 DeepSeek 已回复。\n首轮 plan：制定 2–30 个带依赖的子任务，包含 Codex 的实际执行任务和 DeepSeek 的分析、制作提案及最终 review 任务。设置稳定的验收项 id/title；以后不能降低验收标准。\ndelegate：给 DeepSeek 子任务，它能通过工具读文件、搜索、提交提案、登记问题、请求资料和发布共享发现。双方并非固定交替，可以反复委派、要求重做、增加任务。DeepSeek 结果先 submitted，需你用 accept_task 说明理由后才 done。\nexecute：给 Codex 执行器实际操作工作区，任务依赖必须已 done。辅助提案不会直接写入，须用 apply_proposal 或 reject_proposal 逐项审查，并用 resolution 说明依据。\nreview：让 DeepSeek 实际读取当前工作区复查，会产生问题。每次 execute 或 apply_proposal 后必须重新 review。resolve_issue 必须写清修复证据或不采纳原因，不能为了结束而忽略问题。\ncomplete：所有子任务 done，所有问题与提案已处理，最后工作区已经 DeepSeek 复查，acceptance 中每个原 id 都给出 evidence，final 给出实际成果、文件路径、检查证据与限制。否则引擎拒绝完成。\n缺少人类信息时用 ask_user。用户补充指令优先。不得访问凭证、部署、对外发消息或执行破坏性操作；只操作指定工作目录。研究中不得编造来源。不要输出隐藏思维过程，只输出简要决策依据。`;
     let rejection = '';
-    const selectedRules=flexible(t)?`你是当前团队负责人 ${leaderProvider(t)}。仅有 ${activeProviders(t).join('、')} 参加，禁止调用或冒充未参加的模型。每次只输出符合 director schema 的一个 JSON 动作，未用字符串填空、数组填 []。\nplan：制定 2–30 个依赖子任务，只能分配给参与模型，包括实际 execute 和后续独立 review；同一供应商可以承担不同独立职责。验收项 id/title 固定，不得降低标准。\nexecute：按子任务 owner 调用实际执行器，读取项目规则、写入成果、运行验证。delegate：按 owner 调用调查执行回路，结果需 accept_task；review：按 owner 开启独立只读复查回路，实际读取当前成果，对照需求和验收项，结果需 accept_task。可以由同一模型独立复查，不能假装异构团队。\napply_proposal/reject_proposal 必须逐项审查修改提案并提供 resolution。resolve_issue 必须提供修复证据或不采纳理由。每次修改后重新 review。complete 必须所有任务 done、问题与提案已处理、最终文件经独立实际复查、每个原始验收项有 evidence，并在 final 返回真实成果、路径、验证与限制。缺失人类条件使用 ask_user。预算、权限和最新人的指令不可绕过；不得访问无关凭证、擅自发布或破坏文件。不输出隐藏思维过程。\nJSON schema：${fs.readFileSync(new URL('./director.schema.json',import.meta.url),'utf8')}`:rules;
+    const selectedRules=flexible(t)?`你是当前团队负责人 ${leaderProvider(t)}。仅有 ${activeProviders(t).join('、')} 参加，禁止调用或冒充未参加的模型。每次只输出符合 director schema 的一个 JSON 动作，未用字符串填空、数组填 []。\nplan：制定 2–30 个依赖子任务，只能分配给参与模型，包括实际 execute 和后续独立 review；同一供应商可以承担不同独立职责。验收项 id/title 固定，不得降低标准。\nexecute：按子任务 owner 调用实际执行器，读取项目规则、写入成果、运行验证。delegate：按 owner 调用调查执行回路，结果需 accept_task；review：按 owner 开启独立只读复查回路，实际读取当前成果，对照需求和验收项，结果需 accept_task。可以由同一模型独立复查，不能假装异构团队。\napply_proposal/reject_proposal 必须逐项审查修改提案并提供 resolution。resolve_issue 必须提供修复证据或不采纳理由。每次修改后重新 review。complete 必须所有任务 done、问题与提案已处理、最终文件经独立实际复查、每个原始验收项有 evidence，并在 final 返回真实成果、路径、验证与限制。缺失人类条件使用 ask_user。预算、权限和最新人的指令不可绕过；不得访问无关凭证、擅自发布或破坏文件。不输出隐藏思维过程。\nJSON schema：${leaderProvider(t)==='Codex'?'字段约束见当前结构化响应 schema。':fs.readFileSync(new URL('./director.schema.json',import.meta.url),'utf8')}`:rules;
     for (let step = 0; t.maxSteps===null||step < t.maxSteps; step++) {
       await this.checkpoint(t, signal); t.step = step + 1;
       const inputCount = t.inputs.length;
-      const raw = await this.callProvider(t,leaderProvider(t), `本轮 ${t.step}/${limitText(t.maxSteps)}，剩余调用 ${t.maxCalls===null?'不限':t.maxCalls-t.calls.length}。${rejection ? '\n上一动作被引擎拒绝，请修正：' + rejection : ''}`, signal,'director','direct', { schema: 'director', readOnly: true, channel: 'director',tools:[],json:true,systemPrompt:selectedRules });
+      const raw = await this.callProvider(t,leaderProvider(t), `${t.board.length?'选择当前可执行的下一动作。':'当前尚无任务计划，首个动作必须为 plan；先制定完整依赖和验收标准，不能直接 execute、review 或 complete。'}本轮 ${t.step}/${limitText(t.maxSteps)}，剩余调用 ${t.maxCalls===null?'不限':t.maxCalls-t.calls.length}。${rejection ? '\n上一动作被引擎拒绝，请修正：' + rejection : ''}`, signal,'director','direct', { schema: 'director', readOnly: true, channel: 'director',tools:[],json:true,systemPrompt:selectedRules });
       await this.checkpoint(t, signal);
       try { const action = JSON.parse(raw); if (action.action === 'complete' && t.inputs.length !== inputCount) throw new Error('收到新的人工指令，请先处理后再验收'); if (await this.act(t, action, signal) === 'complete') return; rejection = ''; }
       catch (err) {

@@ -18,7 +18,7 @@ test('managed desktop engine exits on IPC disconnect without triggering inferenc
   let health;
   for(let i=0;i<100;i++){try{health=await(await fetch(`http://127.0.0.1:${port}/api/health`)).json();break;}catch{}await delay(100);}
   assert.equal(health?.desktopEngineId,'lifecycle-test');
-  const navigation=await(await fetch(`http://127.0.0.1:${port}/api/navigation`)).json();assert.deepEqual(navigation,{rooms:[],tasks:[]});
+  const navigation=await(await fetch(`http://127.0.0.1:${port}/api/navigation`)).json();assert.deepEqual(navigation.rooms,[]);assert.deepEqual(navigation.tasks,[]);assert.equal(navigation.scope.type,'all');assert.equal(navigation.counts.total,0);
   child.disconnect();
   const result=await Promise.race([closed,delay(8000,null,{ref:false}).then(()=>null)]);assert.ok(result,'engine must exit after parent disconnect');
   assert.equal(result[0],0);

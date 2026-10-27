@@ -95,6 +95,7 @@ for(const scenario of ['stable','changed','rejected'])test(`真实调度及 HTTP
   hub=new DiscussionHub({dir:path.join(dir,'hub'),harness,deepseek,codex:async args=>{const r=hub.rooms[0];if(changed&&r.activity.phase==='synthesis'&&r.round===1)fs.writeFileSync(path.join(dir,'proof.txt'),'new file after first review');args.onUsage({input_tokens:100,output_tokens:20,cached_input_tokens:64});return JSON.stringify(turn());}});
   t.after(()=>hub.shutdown());const r=hub.create({direction:'读取 proof.txt，核对证据并保留三轮独立审查',workspace:dir,minRounds:3});
   await hub.start(r.id);await hub.live.get(r.id)?.promise;
+  if(scenario==='rejected'){assert.equal(r.status,'unresolved');const count=r.calls.length;await new Promise(resolve=>setTimeout(resolve,10));assert.equal(r.calls.length,count,'invalid output must not silently trigger another paid request');await hub.start(r.id);await hub.live.get(r.id)?.promise;}
   assert.equal(r.status,'consensus',r.reason);assert.equal(r.roundsSinceInput,3);assert.deepEqual(Object.keys(r.votes).sort(),['Codex','DeepSeek']);
   assert.equal(sent.filter(s=>s.req.tool_choice==='required').length,rejected?4:3);
   assert.equal(sent.filter(s=>s.phase==='challenge').length,rejected?8:6);

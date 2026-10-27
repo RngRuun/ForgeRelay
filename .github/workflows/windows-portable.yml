@@ -11,20 +11,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.23.4'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned engine dependencies
+        run: npm ci --registry https://registry.npmjs.org
       - name: Install pinned desktop dependencies
-        run: npm ci --prefix desktop --registry https://registry.npmjs.org
+        working-directory: desktop
+        run: npm ci --registry https://registry.npmjs.org
       - name: Build portable executable
         run: npm run desktop:dist
-      - name: Generate SHA-256
+      - name: Package overwrite upgrade and committed source
         shell: pwsh
         run: |
-          Get-ChildItem ../ForgeRelay-App/ForgeRelay-*-Windows-x64.exe | ForEach-Object {
-            $digest = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$digest  $($_.Name)" | Set-Content -LiteralPath ($_.FullName + '.sha256') -Encoding ascii
-          }
+          $relayVersion = (Get-Content package.json | ConvertFrom-Json).version
+          python tools/package-release.py --executable "../ForgeRelay-App/ForgeRelay-$relayVersion-Windows-x64.exe" --output ../ForgeRelay-Release
       - uses: actions/upload-artifact@v4
         with:
           name: ForgeRelay-Windows-x64-portable
           path: |
-            ../ForgeRelay-App/ForgeRelay-*-Windows-x64.exe
-            ../ForgeRelay-App/ForgeRelay-*-Windows-x64.exe.sha256
+            ../ForgeRelay-Release/*

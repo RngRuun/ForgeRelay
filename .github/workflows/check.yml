@@ -1,7 +1,7 @@
 name: Frontend and backend checks
 on:
   push:
-    branches: [main]
+    branches: [main, bug-resolve]
   pull_request:
 permissions:
   contents: read
@@ -16,6 +16,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install pinned engine dependencies
+        run: npm ci --registry https://registry.npmjs.org
       - name: Install browser integration test dependency
         run: npm install --no-save --package-lock=false --registry https://registry.npmjs.org playwright@1.62.1
       - name: Run deterministic checks without provider credentials
