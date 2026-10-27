@@ -28,7 +28,12 @@ function fixture(t){
   const manifest={product:'ForgeRelay',version:'0.6.3',architecture:'x64',files:Object.entries(files).map(([name,buffer])=>({path:name,bytes:buffer.length,sha256:hash(buffer)}))};
   for(const [name,buffer] of Object.entries(files))fs.writeFileSync(path.join(source,name),buffer);
   const save=()=>fs.writeFileSync(path.join(source,'release-manifest.json'),JSON.stringify(manifest));save();
-  const run=()=>spawnSync(powershell,['-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',path.join(source,'Update-ForgeRelay.ps1'),'-Source',source,'-Destination',destination,'-NonInteractive','-NoLaunch','-SkipShortcuts'],{encoding:'utf8',windowsHide:true,timeout:30000});
+  const run=(launchFailure=false)=>{
+    const wrapper=path.join(directory,'launch-failure.ps1');
+    if(launchFailure)fs.writeFileSync(wrapper,'param($Launcher,$Source,$Destination)\n[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)\nfunction Start-Process { param($FilePath,$WorkingDirectory) throw "Fixture launch denied" }\n& $Launcher -Source $Source -Destination $Destination -NonInteractive -SkipShortcuts\n');
+    const args=launchFailure?['-File',wrapper,'-Launcher',path.join(source,'Update-ForgeRelay.ps1'),'-Source',source,'-Destination',destination]:['-File',path.join(source,'Update-ForgeRelay.ps1'),'-Source',source,'-Destination',destination,'-NonInteractive','-NoLaunch','-SkipShortcuts'];
+    return spawnSync(powershell,['-NoLogo','-NoProfile','-ExecutionPolicy','Bypass',...args],{encoding:'utf8',windowsHide:true,timeout:30000});
+  };
   return{directory,source,destination,files,manifest,save,run};
 }
 
@@ -43,6 +48,7 @@ test('overwrite upgrade replaces stable and legacy entries while preserving ever
   assert.deepEqual(fs.readFileSync(path.join(proof.backup,'ForgeRelay-0.6.1-Windows-x64.exe')),old);
   assert.equal(fs.readdirSync(f.destination).filter(name=>name.startsWith('.forgerelay-update-')).length,0);
   const repeated=f.run();assert.equal(repeated.status,0,repeated.stderr);assert.equal(JSON.parse(repeated.stdout.trim()).changed,0,'repeat upgrade must be idempotent');
+  const launchFailed=f.run(true);assert.equal(launchFailed.status,0,launchFailed.stderr);assert.match(launchFailed.stdout.replace(/\s/g,''),/未能自动打开/);assert.deepEqual(fs.readFileSync(path.join(f.destination,'ForgeRelay.exe')),f.files['ForgeRelay.exe'],'a launch failure must not roll back an already committed update');
 });
 
 test('corrupt update payload cannot change an existing application',windows,t=>{

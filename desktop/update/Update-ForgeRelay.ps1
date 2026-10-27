@@ -153,7 +153,10 @@ try {
         }
     }
     [pscustomobject]@{success=$true;version=$manifest.version;destination=$Destination;changed=$applied.Count;backup=$backup;dataPreserved=$true} | ConvertTo-Json -Compress
-    if (-not $NoLaunch) { Start-Process -FilePath (Join-Path $Destination 'ForgeRelay.exe') -WorkingDirectory $Destination }
+    if (-not $NoLaunch) {
+        try { Start-Process -FilePath (Join-Path $Destination 'ForgeRelay.exe') -WorkingDirectory $Destination }
+        catch { Write-Warning '应用文件已更新完成，但未能自动打开。请手动打开目标目录中的 ForgeRelay.exe。' }
+    }
 } catch {
     $failure = $_.Exception.Message
     for ($index=$applied.Count-1; $index -ge 0; $index--) {
