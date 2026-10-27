@@ -85,7 +85,7 @@ test('locked legacy executable rolls back earlier replacements',windows,async t=
 test('update refuses a running copy and leaves that process alive',windows,async t=>{
   const f=fixture(t),executable=path.join(f.destination,'ForgeRelay.exe');fs.copyFileSync(process.execPath,executable);
   const before=hash(fs.readFileSync(executable));
-  const running=spawn(executable,['-e','console.log("READY");setInterval(()=>{},1000)'],{windowsHide:true,stdio:['ignore','pipe','pipe']});const closed=once(running,'exit');
+  const running=spawn(executable,['-e','console.log("READY "+JSON.stringify({pid:process.pid,exe:process.execPath}));setInterval(()=>{},1000)'],{windowsHide:true,stdio:['ignore','pipe','pipe']});const closed=once(running,'exit');
   let startup='';running.stdout.on('data',value=>startup+=value);running.stderr.on('data',value=>startup+=value);
   t.after(async()=>{if(running.exitCode===null)running.kill();await closed;});
   try{
@@ -94,8 +94,11 @@ test('update refuses a running copy and leaves that process alive',windows,async
     assert.equal(running.exitCode,null);
     const result=f.run();let diagnostic='';
     if(result.status!==1){
-      const script=`$p=Get-CimInstance Win32_Process -Filter 'ProcessId = ${running.pid}';$n=Get-Process -Id ${running.pid};[pscustomobject]@{CimName=$p.Name;CimPath=$p.ExecutablePath;NativePath=$n.MainModule.FileName;Expected=$args[0]}|ConvertTo-Json -Compress`;
-      diagnostic=spawnSync(powershell,['-NoProfile','-Command',script,executable],{encoding:'utf8',windowsHide:true}).stdout;
+      const file=path.join(f.directory,'inspect.ps1');
+      const script='param([int]$TargetId,[string]$Expected)\n[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)\n$env:PSModulePath=(Join-Path $PSHOME "Modules")+[IO.Path]::PathSeparator+$env:PSModulePath\n$p=Get-CimInstance Win32_Process -Filter ("ProcessId = "+$TargetId)\n$n=[System.Diagnostics.Process]::GetProcessById($TargetId)\n[pscustomobject]@{Id=$TargetId;CimName=$p.Name;CimPath=$p.ExecutablePath;NativeName=$n.ProcessName;NativePath=$n.MainModule.FileName;Expected=$Expected}|ConvertTo-Json -Compress\n';
+      fs.writeFileSync(file,script);
+      const probe=spawnSync(powershell,['-NoProfile','-ExecutionPolicy','Bypass','-File',file,'-TargetId',String(running.pid),'-Expected',executable],{encoding:'utf8',windowsHide:true});
+      diagnostic=probe.stdout+' '+probe.stderr;
     }
     assert.equal(result.status,1,result.stdout+' fixture exit='+running.exitCode+' startup='+startup+' paths='+diagnostic);
     assert.match(result.stderr.replace(/\s/g,''),/仍在运行|无法确认.*进程的路径/);
