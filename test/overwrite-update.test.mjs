@@ -85,7 +85,11 @@ test('locked legacy executable rolls back earlier replacements',windows,async t=
 test('update refuses a running copy and leaves that process alive',windows,async t=>{
   const f=fixture(t),executable=path.join(f.destination,'ForgeRelay.exe');fs.copyFileSync(process.execPath,executable);
   const before=hash(fs.readFileSync(executable));
-  const running=spawn(executable,['-e','console.log("READY "+JSON.stringify({pid:process.pid,exe:process.execPath}));setInterval(()=>{},1000)'],{windowsHide:true,stdio:['ignore','pipe','pipe']});const closed=once(running,'exit');
+  const aliasScript=path.join(f.directory,'short-path.ps1');
+  fs.writeFileSync(aliasScript,'param($Target)\n[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)\n$env:PSModulePath=(Join-Path $PSHOME "Modules")+[IO.Path]::PathSeparator+$env:PSModulePath\n$fso=New-Object -ComObject Scripting.FileSystemObject\nWrite-Output ($fso.GetFile($Target).ShortPath)\n');
+  const aliasResult=spawnSync(powershell,['-NoProfile','-ExecutionPolicy','Bypass','-File',aliasScript,executable],{encoding:'utf8',windowsHide:true});
+  assert.equal(aliasResult.status,0,aliasResult.stderr);const imageAlias=aliasResult.stdout.trim();assert.ok(imageAlias);assert.equal(fs.statSync(imageAlias).ino,fs.statSync(executable).ino);assert.equal(hash(fs.readFileSync(imageAlias)),before);
+  const running=spawn(imageAlias,['-e','console.log("READY "+JSON.stringify({pid:process.pid,exe:process.execPath}));setInterval(()=>{},1000)'],{windowsHide:true,stdio:['ignore','pipe','pipe']});const closed=once(running,'exit');
   let startup='';running.stdout.on('data',value=>startup+=value);running.stderr.on('data',value=>startup+=value);
   t.after(async()=>{if(running.exitCode===null)running.kill();await closed;});
   try{

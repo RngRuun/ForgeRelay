@@ -15,6 +15,35 @@ $stage = $null
 $backup = $null
 $applied = [System.Collections.Generic.List[object]]::new()
 $expectedFiles = @('ForgeRelay.exe','Update-ForgeRelay.ps1','Update-ForgeRelay.cmd','README.txt','CHANGELOG.md')
+if (-not ('ForgeRelay.UpgradePaths' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Text;
+using System.Runtime.InteropServices;
+namespace ForgeRelay {
+    public static class UpgradePaths {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+        private static extern uint GetLongPathNameW(string source, StringBuilder destination, uint capacity);
+        public static string Canonical(string value) {
+            string full = Path.GetFullPath(value);
+            if (full.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase)) full = @"\\" + full.Substring(8);
+            else if (full.StartsWith(@"\\?\")) full = full.Substring(4);
+            var buffer = new StringBuilder(32768);
+            uint count = GetLongPathNameW(full, buffer, (uint)buffer.Capacity);
+            if (count == 0) return full;
+            if (count >= buffer.Capacity) throw new IOException("Application path is too long");
+            return buffer.ToString();
+        }
+    }
+}
+'@
+}
+function Target-Image([string]$Image) {
+    if (-not $Image) { return $false }
+    $canonical = [ForgeRelay.UpgradePaths]::Canonical($Image)
+    return [IO.Path]::GetDirectoryName($canonical).TrimEnd('\') -ieq $Destination -and [IO.Path]::GetFileName($canonical) -match '^ForgeRelay(?:-\d+\.\d+\.\d+-Windows-x64)?\.exe$'
+}
 function Child-Path([string]$Parent, [string]$Name) {
     $prefix = [IO.Path]::GetFullPath($Parent).TrimEnd('\') + '\'
     $result = [IO.Path]::GetFullPath((Join-Path $Parent $Name))
@@ -57,6 +86,7 @@ try {
     $Destination = [IO.Path]::GetFullPath($Destination).TrimEnd('\')
     if ($Destination -eq [IO.Path]::GetPathRoot($Destination).TrimEnd('\')) { throw '请选择应用文件夹，不能选择磁盘根目录。' }
     if (-not (Test-Path -LiteralPath $Destination)) { [void][IO.Directory]::CreateDirectory($Destination) }
+    $Destination = [ForgeRelay.UpgradePaths]::Canonical($Destination).TrimEnd('\')
     if ((Get-Item -LiteralPath $Destination).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw '请选择实际应用文件夹，不要使用目录链接。' }
     $legacy = @(Get-ChildItem -LiteralPath $Destination -File | Where-Object { $_.Name -match '^ForgeRelay-\d+\.\d+\.\d+-Windows-x64\.exe$' })
     if (@(Get-ChildItem -LiteralPath $Destination -Force).Count -gt 0 -and -not (Test-Path -LiteralPath (Join-Path $Destination 'ForgeRelay.exe')) -and $legacy.Count -eq 0) { throw '目标不是 ForgeRelay 应用文件夹，请重新选择。' }
@@ -67,13 +97,11 @@ try {
     }
     # Refuse to modify an application that is still running. Do not kill unrelated engines or work.
     $processes = @(Get-CimInstance Win32_Process)
-    $active = @($processes | Where-Object { $_.ExecutablePath -and [IO.Path]::GetDirectoryName($_.ExecutablePath).TrimEnd('\') -ieq $Destination -and [IO.Path]::GetFileName($_.ExecutablePath) -match '^ForgeRelay(?:-\d+\.\d+\.\d+-Windows-x64)?\.exe$' })
+    $active = @($processes | Where-Object { $_.ExecutablePath -and (Target-Image $_.ExecutablePath) })
     # Query the native process image too; WMI can report a stale/translated image path.
     $nativeActive = @(Get-Process | ForEach-Object {
         try {
-            $image = $_.MainModule.FileName
-            if ($image.StartsWith('\\?\')) { $image = $image.Substring(4) }
-            if ([IO.Path]::GetDirectoryName($image).TrimEnd('\') -ieq $Destination -and [IO.Path]::GetFileName($image) -match '^ForgeRelay(?:-\d+\.\d+\.\d+-Windows-x64)?\.exe$') { $_ }
+            if (Target-Image $_.MainModule.FileName) { $_ }
         } catch { }
     })
     if (@($processes | Where-Object { $_.Name -match '^ForgeRelay.*\.exe$' -and -not $_.ExecutablePath }).Count -gt 0) { throw '无法确认一个 ForgeRelay 进程的路径，请先退出正在运行的 ForgeRelay 后重试。' }
