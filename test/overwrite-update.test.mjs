@@ -92,7 +92,12 @@ test('update refuses a running copy and leaves that process alive',windows,async
     for(let i=0;i<200&&!startup.includes('READY')&&running.exitCode===null;i++)await delay(25);
     assert.match(startup,/READY/,'running-app fixture must actually reach its event loop');
     assert.equal(running.exitCode,null);
-    const result=f.run();assert.equal(result.status,1,result.stdout+' fixture exit='+running.exitCode+' startup='+startup);
+    const result=f.run();let diagnostic='';
+    if(result.status!==1){
+      const script=`$p=Get-CimInstance Win32_Process -Filter 'ProcessId = ${running.pid}';$n=Get-Process -Id ${running.pid};[pscustomobject]@{CimName=$p.Name;CimPath=$p.ExecutablePath;NativePath=$n.MainModule.FileName;Expected=$args[0]}|ConvertTo-Json -Compress`;
+      diagnostic=spawnSync(powershell,['-NoProfile','-Command',script,executable],{encoding:'utf8',windowsHide:true}).stdout;
+    }
+    assert.equal(result.status,1,result.stdout+' fixture exit='+running.exitCode+' startup='+startup+' paths='+diagnostic);
     assert.match(result.stderr.replace(/\s/g,''),/仍在运行|无法确认.*进程的路径/);
     assert.equal(running.exitCode,null,'updater must not kill user work');assert.equal(hash(fs.readFileSync(executable)),before);
   }finally{running.kill();await closed;}

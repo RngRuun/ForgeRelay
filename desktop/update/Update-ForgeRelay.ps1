@@ -68,8 +68,16 @@ try {
     # Refuse to modify an application that is still running. Do not kill unrelated engines or work.
     $processes = @(Get-CimInstance Win32_Process)
     $active = @($processes | Where-Object { $_.ExecutablePath -and [IO.Path]::GetDirectoryName($_.ExecutablePath).TrimEnd('\') -ieq $Destination -and [IO.Path]::GetFileName($_.ExecutablePath) -match '^ForgeRelay(?:-\d+\.\d+\.\d+-Windows-x64)?\.exe$' })
+    # Query the native process image too; WMI can report a stale/translated image path.
+    $nativeActive = @(Get-Process | ForEach-Object {
+        try {
+            $image = $_.MainModule.FileName
+            if ($image.StartsWith('\\?\')) { $image = $image.Substring(4) }
+            if ([IO.Path]::GetDirectoryName($image).TrimEnd('\') -ieq $Destination -and [IO.Path]::GetFileName($image) -match '^ForgeRelay(?:-\d+\.\d+\.\d+-Windows-x64)?\.exe$') { $_ }
+        } catch { }
+    })
     if (@($processes | Where-Object { $_.Name -match '^ForgeRelay.*\.exe$' -and -not $_.ExecutablePath }).Count -gt 0) { throw '无法确认一个 ForgeRelay 进程的路径，请先退出正在运行的 ForgeRelay 后重试。' }
-    if ($active.Count -gt 0) { throw 'ForgeRelay 仍在运行。请从系统托盘退出旧版本，再重新更新；仅关闭或最小化窗口可能仍会保留后台。' }
+    if ($active.Count -gt 0 -or $nativeActive.Count -gt 0) { throw 'ForgeRelay 仍在运行。请从系统托盘退出旧版本，再重新更新；仅关闭或最小化窗口可能仍会保留后台。' }
     $stage = Child-Path $Destination ('.forgerelay-update-' + [Guid]::NewGuid().ToString('N'))
     [void][IO.Directory]::CreateDirectory($stage)
     $changes = [System.Collections.Generic.List[object]]::new()
