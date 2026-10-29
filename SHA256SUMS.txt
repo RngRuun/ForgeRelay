@@ -1,1 +1,1 @@
-25d94d24ccd9072ad74df15979ccf82ddb5447d3b656b942512c6eb703d7535c  ForgeRelay-0.6.7-Windows-x64-portable.zip
+819e9bc085761d7c9524e7c967565632923533136af9ac733a4ee89c5e4e1e49  ForgeRelay-0.6.7-Windows-x64-portable.zip
