@@ -1,4 +1,0 @@
-/* SIL Open Font License; see fonts/*-OFL.txt. Local assets keep the app usable without a font CDN. */
-@font-face{font-family:'Public Sans';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fonts/publicsans-variable.ttf') format('truetype')}
-@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:url('/fonts/ibmplexmono-regular.ttf') format('truetype')}
-@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;src:url('/fonts/ibmplexmono-medium.ttf') format('truetype')}
